@@ -1,5 +1,10 @@
 # Intent Analyzer Sidecar 🛡️
 
+[![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0%2B-009688.svg?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Performance](https://img.shields.io/badge/latency-sub--1ms-green.svg)](docs/architecture_demo.md)
+
 The **Intent Analyzer** is a high-performance, AI-driven guardrail service designed to detect and classify user intents in real-time. It acts as a security sidecar for LLM applications, preventing prompt injection, jailbreaks, PII exfiltration, and other malicious activities before they reach your core model.
 
 ---
@@ -33,7 +38,7 @@ graph TD
 
 1.  **Ingestion**: The `/intent` endpoint receives text or chat history.
 2.  **Parallel Analysis**: The input is broadcast to three detectors simultaneously:
-    *   **Regex Detector**: Scans for known attack patterns (e.g., "ignore previous instructions", "system override"). *Speed: <1ms*
+    *   **Regex Detector**: Scans for known attack patterns (e.g., "ignore previous instructions", "system override"). *Speed: <1ms (with short-circuit optimization)*
     *   **Semantic Detector**: Computes vector similarity against a database of attack centroids using `all-MiniLM-L6-v2`. *Speed: ~50ms (MPS)*
     *   **Zero-Shot Detector**: a BART-MNLI model classifies intent based on natural language descriptions. *Speed: ~200ms (MPS)*
 3.  **Risk Aggregation**: The `RiskEngine` compiles scores from all detectors.
@@ -134,25 +139,30 @@ async def check_safety():
 The system classifies inputs into 4 risk tiers:
 
 ### 🔴 Critical (Block Immediately)
-*   `security.prompt_injection`: Attempts to override system instructions.
-*   `security.jailbreak`: Roleplay attacks (e.g., "DAN mode").
-*   `security.system_override`: Commands to reboot, shutdown, or change permissions.
+*   `code.exploit`: Attempts to override system instructions or inject malicious prompts.
+*   `sys.control`: Commands to reboot, shutdown, or change system permissions.
 
 ### 🟠 High (Review/Block)
-*   `privacy.pii_exfiltration`: Requests for passwords, keys, or user data.
-*   `safety.toxicity`: Hate speech, self-harm, or harassment.
-*   `tool.misuse`: Destructive file/system operations.
+*   `info.query.pii`: Requests for passwords, keys, or sensitive user data.
+*   `safety.toxicity`: Hate speech, threats of violence, or harassment.
+*   `tool.dangerous`: Destructive file or system operations.
 
 ### 🟡 Medium (Flag)
-*   `policy.financial_advice`: Unauthorized financial predictions.
-*   `policy.code_execution`: Requests to generate/run code.
-*   `policy.off_topic`: Queries unrelated to the agent's domain.
+*   `policy.financial_advice`: Unauthorized financial or investment advice.
+*   `code.generate`: Requests to generate code or execute commands.
+*   `conv.other`: Off-topic queries unrelated to the agent's purpose.
 
 ### 🟢 Low (Allow)
 *   `info.query`: General knowledge questions.
 *   `info.summarize`: Summarization requests.
-*   `tool.authorized`: Safe tool use (Weather, Calendar).
+*   `tool.safe`: Safe tool use (Weather, Calculator).
 *   `conv.greeting`: Standard greetings.
+
+---
+
+## 📚 Documentation & Learning
+- [Full Tutorial](docs/tutorial.md): A step-by-step guide to the architecture.
+- [Execution Flow Demo](docs/architecture_demo.md): Detailed trace of how requests are processed.
 
 ---
 
