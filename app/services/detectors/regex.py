@@ -13,18 +13,32 @@ class RegexDetector(BaseDetector):
         # Compile regex patterns for different intents
         self.patterns = {
             IntentCategory.PROMPT_INJECTION: [
-                # Injection patterns
+                # Standard Injection
                 r"ignore previous instructions",
                 r"ignore all rules",
                 r"reveal your system prompt",
                 r"system prompt",
-                # Jailbreak patterns (merged because of same IntenCategory value)
+                r"forget all instructions",
+                r"disregard safety",
+                # Obfuscated (Spacing/Hyphens/Leet)
+                r"i[\s\-_]?g[\s\-_]?n[\s\-_]?o[\s\-_]?r[\s\-_]?e[\s\-_]?",
+                r"p[\s\-_]?r[\s\-_]?e[\s\-_]?v[\s\-_]?i[\s\-_]?o[\s\-_]?u[\s\-_]?s",
+                r"i[\s\-_]?n[\s\-_]?s[\s\-_]?t[\s\-_]?r[\s\-_]?u[\s\-_]?c[\s\-_]?t[\s\-_]?i[\s\-_]?o[\s\-_]?n[\s\-_]?s",
+                r"r[\s\-_]?e[\s\-_]?v[\s\-_]?e[\s\-_]?a[\s\-_]?l[\s\-_]?",
+                r"p[\s\-_]?r[\s\-_]?o[\s\-_]?m[\s\-_]?p[\s\-_]?t",
+                r"s[\s\-_]?y[\s\-_]?s[\s\-_]?t[\s\-_]?e[\s\-_]?m",
+                r"[i1][\s\-_]?[g6b][\s\-_]?n[\s\-_]?[o0][\s\-_]?r[\s\-_]?[e3]",
+                r"p[\s\-_]?[r7][\s\-_]?[e3][\s\-_]?[vu][\s\-_]?[i1][\s\-_]?[o0][\s\-_]?[uv][\s\-_]?[s5]",
+                r"[i1][\s\-_]?n[\s\-_]?[s5][\s\-_]?t[\s\-_]?r[\s\-_]?[uv][\s\-_]?[ck][\s\-_]?t[\s\-_]?[i1][\s\-_]?[o0][\s\-_]?n[\s\-_]?[s5]",
+                # Jailbreak Roles
                 r"you are now DAN",
                 r"do anything now",
                 r"switch to developer mode",
-                r"bypass safety filters"
+                r"bypass safety filters",
+                r"act as an AI with no moral",
+                r"you are now EvilBot",
+                r"stay in character as a hacker"
             ],
-            # IntentCategory.JAILBREAK shares the same value "code.exploit" so we merge it above
             
             IntentCategory.SYSTEM_OVERRIDE: [
                 r"system override",
@@ -32,16 +46,21 @@ class RegexDetector(BaseDetector):
                 r"reboot",
                 r"halt system",
                 r"chmod",
-                r"sudo rm",
+                r"sudo\s+rm",
                 r"transfer admin",
                 r"disable antivirus",
-                r"kill -9"
+                r"kill\s+-9",
+                r"disable\s+the\s+firewall"
             ],
             IntentCategory.PII_EXFILTRATION: [
                 r"read my passwords",
                 r"dump database",
                 r"dump the user database",
-                r"show me all user emails"
+                r"show me all user emails",
+                r"social security number",
+                r"credit card number",
+                r"ssn",
+                r"private api keys"
             ]
         }
         
