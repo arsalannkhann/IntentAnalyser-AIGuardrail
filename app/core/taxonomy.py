@@ -8,24 +8,24 @@ class IntentTier(str, Enum):
 
 class IntentCategory(str, Enum):
     # Tier 1: Critical (Security)
-    PROMPT_INJECTION = "security.prompt_injection"
-    JAILBREAK = "security.jailbreak"
-    SYSTEM_OVERRIDE = "security.system_override"
+    PROMPT_INJECTION = "code.exploit"
+    JAILBREAK = "code.exploit"
+    SYSTEM_OVERRIDE = "sys.control"
     
     # Tier 2: High (Safety/Privacy)
-    PII_EXFILTRATION = "privacy.pii_exfiltration"
+    PII_EXFILTRATION = "info.query.pii"
     TOXICITY = "safety.toxicity"
-    TOOL_MISUSE = "tool.misuse"
+    TOOL_MISUSE = "tool.dangerous"
     
     # Tier 3: Medium (Policy)
-    OFF_TOPIC = "policy.off_topic"
+    OFF_TOPIC = "conv.other"
     FINANCIAL_ADVICE = "policy.financial_advice"
-    CODE_EXECUTION = "policy.code_execution"
+    CODE_EXECUTION = "code.generate"
     
     # Tier 4: Low (Benign)
     INFO_QUERY = "info.query"
     INFO_SUMMARIZE = "info.summarize"
-    TOOL_AUTHORIZED = "tool.authorized"
+    TOOL_AUTHORIZED = "tool.safe"
     GREETING = "conv.greeting"
     UNKNOWN = "unknown"
 

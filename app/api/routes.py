@@ -47,6 +47,14 @@ async def analyze_intent(request: IntentRequest):
     # regex is fast enough to run sync, but semantic and zeroshot block
     regex_res = detectors["regex"].detect(input_text)
     
+    # OPTIMIZATION: Short-circuit if deterministic match found
+    if regex_res["detected"]:
+        # We can skip expensive models
+        response = risk_engine.calculate_risk(regex_res, {}, {})
+        response.processing_time_ms = (time.time() - start_time) * 1000
+        logger.info(f"Short-circuiting due to Regex Match: {regex_res['intent']}")
+        return response
+
     # Prepare parallel tasks
     async def run_semantic():
         return await asyncio.to_thread(detectors["semantic"].detect, input_text)

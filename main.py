@@ -23,37 +23,13 @@ app = FastAPI(
 # Load model on startup
 classifier = None
 
-# Hierarchical Taxonomy - Must match Go side exactly
-INTENTS = [
-    "info.query",
-    "info.query.pii",
-    "info.summarize",
-    "code.generate",
-    "code.exploit",
-    "tool.safe",
-    "tool.dangerous",
-    "file.read",
-    "file.write",
-    "sys.control",
-    "conv.greeting",
-    "conv.other"
-]
+from app.core.taxonomy import IntentCategory, INTENT_DESCRIPTIONS, TIER_MAPPING
+
+# Use centralized taxonomy
+INTENTS = [cat.value for cat in IntentCategory]
 
 # Descriptive versions for zero-shot accuracy
-DESCRIPTIVE_INTENTS = [
-    "info.query (general information requests or answering questions)",
-    "info.query.pii (requests for personal identity information, SSN, or sensitive user data)",
-    "info.summarize (summarizing or condensing large blocks of text)",
-    "code.generate (writing, generating, or explaining neutral programming code)",
-    "code.exploit (writing malicious code, shellcode, malware, or exploiting security vulnerabilities)",
-    "tool.safe (using harmless utility tools like calculator, clock, or simple maps)",
-    "tool.dangerous (using powerful tools to delete data, execute shell commands, or modify systems)",
-    "file.read (reading or viewing files, logs, and document contents)",
-    "file.write (writing, deleting, or modifying files and directories)",
-    "sys.control (controlling system settings, restarting services, or shutdown commands)",
-    "conv.greeting (basic greetings, saying hello, or polite starters like 'how are you')",
-    "conv.other (casual small talk, jokes, or non-task-oriented chatter)"
-]
+DESCRIPTIVE_INTENTS = [f"{cat.value} ({desc})" for cat, desc in INTENT_DESCRIPTIONS.items()]
 
 INTENT_MAP = dict(zip(DESCRIPTIVE_INTENTS, INTENTS))
 
