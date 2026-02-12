@@ -15,10 +15,14 @@ COPY main.py .
 # Environment
 ENV INTENT_ANALYZER_MODEL=bart
 ENV PORT=8002
+ENV HOME=/tmp
+ENV TRANSFORMERS_CACHE=/tmp/.cache
+
+# Download models during build to speed up startup and avoid network timeouts at runtime
+RUN python3 -c "from transformers import pipeline; pipeline('zero-shot-classification', model='facebook/bart-large-mnli')"
+RUN python3 -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 EXPOSE 8002
 
-# Use gunicorn as process manager for production (uvicorn workers)
-# Or just uvicorn directly if desired. Render recommends gunicorn.
-# For now, sticking to uvicorn per user request but correct path.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+# Use a longer timeout for worker boot to handle model loading
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--timeout-keep-alive", "120"]
