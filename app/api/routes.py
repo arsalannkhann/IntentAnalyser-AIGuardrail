@@ -49,7 +49,6 @@ async def analyze_intent(request: IntentRequest):
     
     # OPTIMIZATION: Short-circuit if deterministic match found
     if regex_res["detected"]:
-        # We can skip expensive models
         response = risk_engine.calculate_risk(regex_res, {}, {})
         response.processing_time_ms = (time.time() - start_time) * 1000
         logger.info(f"Short-circuiting due to Regex Match: {regex_res['intent']}")

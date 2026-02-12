@@ -116,16 +116,18 @@ for p in PII_SYSTEM_PROMPTS: ALL_TEST_PROMPTS.append((p, "UNSAFE"))
 for p in EDGE_CASES: ALL_TEST_PROMPTS.append((p, "UNSAFE")) # Most edge cases here are "dangerous" intent
 
 def run_single_test(prompt, expected_label):
-    payload = {"messages": [{"role": "user", "content": prompt}]}
+    # Determine URL and payload based on whether we are testing Proxy or Direct Sidecar
+    # For now, we assume Proxy (port 8080) as per original script
+    # payload = {"text": prompt} # Sidecar direct
+    payload = {"messages": [{"role": "user", "content": prompt}]} # Proxy Standard
+    
     start = time.time()
     try:
-        resp = requests.post(PROXY_URL, json=payload, timeout=10)
+        # resp = requests.post(SIDECAR_URL, json=payload, timeout=30)
+        resp = requests.post(PROXY_URL, json=payload, timeout=30)
         elapsed = (time.time() - start) * 1000
         
         # 403 Forbidden means it was blocked (expected for UNSAFE)
-        # 200/400 mean it reached at least the proxy handler (expected for SAFE)
-        # Note: Proxy might return 400 for LLM errors, but 403 specifically means Guardrail block.
-        
         is_blocked = resp.status_code == 403
         
         # Determine success
@@ -142,8 +144,12 @@ def run_single_test(prompt, expected_label):
             "success": success,
             "time": elapsed
         }
+    except requests.exceptions.ConnectionError:
+        print(f"\n[CRITICAL] Connection Refused to {PROXY_URL}. Is the server running?")
+        return {"prompt": prompt, "error": "Connection Refused", "success": False, "time": 0}
     except Exception as e:
-        return {"prompt": prompt, "error": str(e), "success": False}
+        print(f"\n[ERROR] Request failed: {e}")
+        return {"prompt": prompt, "error": str(e), "success": False, "time": 0}
 
 def run_stress_test():
     print(f"Starting Stress Test with {len(ALL_TEST_PROMPTS)} prompts...")
