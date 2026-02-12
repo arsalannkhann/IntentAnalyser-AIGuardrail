@@ -1,3 +1,12 @@
+---
+title: Intent Analyzer
+emoji: 🐨
+colorFrom: indigo
+colorTo: green
+sdk: docker
+pinned: false
+---
+
 # Intent Analyzer Sidecar 🛡️
 
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
@@ -79,7 +88,6 @@ The service is production-ready with a tuned `Dockerfile`.
 **Run Locally:**
 ```bash
 docker build -t intent-analyzer .
-docker run -p 8002:8002 intent-analyzer
 ```
 
 **Deploy to Render:**
@@ -191,3 +199,5 @@ If you need to push specifically to one or the other:
 The Hugging Face Space is configured as a **Docker** space. It automatically reads the `Dockerfile` in the root and starts the service on the port defined in `render.yaml` or the environment variables.
 
 ---
+
+Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
