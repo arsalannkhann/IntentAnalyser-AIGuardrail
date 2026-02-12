@@ -166,9 +166,28 @@ The system classifies inputs into 4 risk tiers:
 
 ---
 
-## 🛠️ Accuracy Tuning
+## 🚀 Deployment & Synchronization
 
-To improve accuracy for your specific use case:
+This project is configured to stay in sync between **GitHub** (for development) and **Hugging Face Spaces** (for hosting).
 
-1.  **Add Regex**: Edit `app/services/detectors/regex.py` for specific keywords.
-2.  **Add Centroids**: Edit `app/services/detectors/semantic.py` to add example phrases for any intent. The semantic model generalizes from these examples automatically.
+### 🔄 Synchronizing Code
+
+To push your changes to both GitHub and Hugging Face simultaneously, simply use:
+
+```bash
+git push origin main
+```
+
+*Note: The `origin` remote has been configured with multiple push URLs.*
+
+### 🛠️ Manual Deployment Flow
+
+If you need to push specifically to one or the other:
+
+- **GitHub only**: `git push origin main` (default behavior if multiple URLs weren't set, but now it pushes to both).
+- **Hugging Face only**: `git push hf main`
+
+### 🏗️ Space Configuration
+The Hugging Face Space is configured as a **Docker** space. It automatically reads the `Dockerfile` in the root and starts the service on the port defined in `render.yaml` or the environment variables.
+
+---
