@@ -53,9 +53,16 @@ priority_engine = PriorityEngine()
 policy_engine = PolicyEngine()
 
 
-def _map_intent_to_domain(intent: IntentCategory) -> str:
+def _map_intent_to_domain(intent: IntentCategory, text: str = "") -> str:
     """Helper to map intent category to policy domain."""
     val = intent.value
+    text_lower = text.lower() if text else ""
+    
+    # Recruitment heuristics (since we don't have a dedicated intent class yet)
+    recruitment_keywords = ["job", "interview", "hiring", "candidate", "resume", "cv", "recruit"]
+    if any(k in text_lower for k in recruitment_keywords):
+        return "recruitment"
+
     if val.startswith("code.") or val.startswith("sys.") or val.startswith("tool."):
         return "technical"
     if val.startswith("security."):
@@ -78,7 +85,11 @@ async def analyze_intent(request: IntentRequest, debug: bool = Query(False)):
         raise HTTPException(status_code=400, detail="Text or messages required")
 
     # Cache lookup
-    cached = cache_service.get(input_text)
+    # Include role in cache key to prevent context poisoning between roles
+    role = request.user_role or "general"
+    cache_key = f"{role}:{input_text}"
+    
+    cached = cache_service.get(cache_key)
     if cached:
         cached["processing_time_ms"] = round((time.time() - start_time) * 1000, 2)
         return cached
@@ -121,7 +132,9 @@ async def analyze_intent(request: IntentRequest, debug: bool = Query(False)):
 
     # 4. Policy Enforcement (Cedar)
     # Map context
-    principal = "Role::\"general\""
+    # Use request role if provided, otherwise default to "general"
+    role = request.user_role or "general"
+    principal = f"Role::\"{role}\""
     
     action_str = "Action::\"query\"" # Default
     if "summarize" in primary_intent.value:
@@ -137,7 +150,7 @@ async def analyze_intent(request: IntentRequest, debug: bool = Query(False)):
         "risk_score": int(response_data.risk_score * 100),
         "tier": response_data.tier.value,
         "has_critical_signal": response_data.tier == IntentTier.P0,
-        "domain": _map_intent_to_domain(primary_intent)
+        "domain": _map_intent_to_domain(primary_intent, input_text)
     }
     
     policy_result = policy_engine.evaluate(principal, action_str, resource, context)
@@ -166,9 +179,9 @@ async def analyze_intent(request: IntentRequest, debug: bool = Query(False)):
             }
         }
 
-    # Cache Write
-    cache_service.set(input_text, resp_dict)
-
+    # Cache result (TTL 60s)
+    cache_service.set(cache_key, resp_dict)
+    
     return resp_dict
 
 

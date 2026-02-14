@@ -26,8 +26,16 @@ permit (
     resource
 )
 when {
-    context.domain in ["recruitment", "general_knowledge"]
+    context.domain == "recruitment"
 };
+
+
+// Allow greetings for everyone (including recruiters)
+permit (
+    principal,
+    action == Action::"greet",
+    resource
+);
 
 // --- Financial Advisor ---
 // Can access finance, legal, and general knowledge.

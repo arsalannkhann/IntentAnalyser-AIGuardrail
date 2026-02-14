@@ -42,7 +42,18 @@ class PolicyEngine:
         # We assume empty entities list for now as our policies are self-contained
         # or rely on context. If we need hierarchical role checking that isn't
         # pure string matching, we'd populate entities here.
-        entities = [] 
+        # Construct principal entity to ensure Cedar recognizes it
+        # Principal format: Role::"name" -> type=Role, id=name
+        p_type, p_id = principal.split("::")
+        p_id = p_id.strip('"') # Remove quotes
+        
+        principal_entity = {
+            "uid": {"type": p_type, "id": p_id},
+            "attrs": {},
+            "parents": []
+        }
+        entities = [principal_entity] 
+        logger.info(f"CEDAR REQUEST: {request}") 
 
         try:
             result: cedarpy.AuthzResult = cedarpy.is_authorized(request, self.policy_content, entities)

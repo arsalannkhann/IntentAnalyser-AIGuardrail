@@ -16,6 +16,7 @@ class IntentRequest(BaseModel):
     messages: Optional[List[Message]] = None
     user_id: Optional[str] = None
     session_id: Optional[str] = None
+    user_role: Optional[str] = "general"
 
 
 class AnalysisBreakdown(BaseModel):
