@@ -1,0 +1,12 @@
+version: 1
+template: strict
+blocked_tiers:
+  - P0_Critical
+  - P1_High
+  - P2_Medium
+  - P3_Low
+role_overrides:
+  {}  # No role overrides (tier enforcement only)
+low_confidence:
+  threshold: 0.5
+  clamp_tier: P2_Medium

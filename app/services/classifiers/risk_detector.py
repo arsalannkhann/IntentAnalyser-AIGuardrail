@@ -18,21 +18,21 @@ Multiple signals can fire simultaneously (multi-label, not single-label).
 """
 
 import re
+import os
 import base64
 import binascii
 import logging
 from typing import Dict, Any, List, Set
 from app.services.classifiers import BaseClassifier
 from app.core.axes import RiskSignal
+from app.services.hf_inference import (
+    HuggingFaceInferenceClient,
+    coerce_embedding_batch,
+    coerce_embedding_vector,
+    cosine_similarity,
+)
 
 logger = logging.getLogger(__name__)
-
-try:
-    from sentence_transformers import SentenceTransformer, util
-except ImportError:
-    SentenceTransformer = None
-    logger.warning("sentence-transformers not installed. Semantic risk detection disabled.")
-
 
 # ─── Regex Patterns (Deterministic Layer) ─────────────────────────────────────
 # Organized by RiskSignal, not by "intent".
@@ -198,8 +198,9 @@ class RiskDetector(BaseClassifier):
 
     def __init__(self):
         self.compiled_patterns: Dict[RiskSignal, List[re.Pattern]] = {}
-        self.semantic_model = None
-        self.semantic_centroids: Dict[RiskSignal, Any] = {}
+        self.client = None
+        self.semantic_centroids: Dict[RiskSignal, List[List[float]]] = {}
+        self.model_name = os.getenv("HF_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
     async def load(self):
         # Compile regex patterns
@@ -209,16 +210,18 @@ class RiskDetector(BaseClassifier):
             ]
             logger.info(f"RiskDetector: Compiled {len(patterns)} patterns for {signal.value}")
 
-        # Load semantic model for centroid matching
-        if SentenceTransformer:
-            import torch
-            device = "mps" if torch.backends.mps.is_available() else "cpu"
-            logger.info(f"RiskDetector: Loading semantic model on {device}...")
-            self.semantic_model = SentenceTransformer('all-MiniLM-L6-v2', device=device)
-
+        # Load hosted semantic embeddings for centroid matching
+        try:
+            logger.info(f"RiskDetector: Initializing hosted embedding model ({self.model_name})...")
+            self.client = HuggingFaceInferenceClient(self.model_name)
             for signal, examples in RISK_CENTROIDS.items():
-                self.semantic_centroids[signal] = self.semantic_model.encode(examples)
+                raw = self.client.predict(inputs=examples)
+                self.semantic_centroids[signal] = coerce_embedding_batch(raw, expected_count=len(examples))
             logger.info(f"RiskDetector: Encoded centroids for {len(self.semantic_centroids)} risk signals.")
+        except Exception as e:
+            logger.error(f"RiskDetector: Failed to initialize semantic centroids: {e}")
+            self.client = None
+            self.semantic_centroids = {}
 
     # ─── Normalization (anti-obfuscation) ─────────────────────────────────
 
@@ -277,15 +280,23 @@ class RiskDetector(BaseClassifier):
 
     def _semantic_scan(self, text: str, threshold: float = 0.65) -> Dict[RiskSignal, float]:
         """Semantic similarity against risk centroids. Returns signal→score for anything above threshold."""
-        if not self.semantic_model or not self.semantic_centroids:
+        if not self.client or not self.semantic_centroids:
             return {}
 
-        embedding = self.semantic_model.encode(text)
+        try:
+            raw_embedding = self.client.predict(inputs=text)
+            embedding = coerce_embedding_vector(raw_embedding)
+        except Exception as e:
+            logger.error(f"RiskDetector semantic inference failed: {e}")
+            return {}
+
         hits: Dict[RiskSignal, float] = {}
 
         for signal, centroid_embeddings in self.semantic_centroids.items():
-            scores = util.cos_sim(embedding, centroid_embeddings)
-            max_score = float(scores.max())
+            max_score = max(
+                (cosine_similarity(embedding, centroid) for centroid in centroid_embeddings),
+                default=0.0,
+            )
             if max_score >= threshold:
                 hits[signal] = round(max_score, 4)
 

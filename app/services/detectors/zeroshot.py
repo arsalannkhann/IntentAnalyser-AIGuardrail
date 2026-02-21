@@ -1,14 +1,15 @@
-from typing import Dict, Any, List
-from transformers import pipeline
+import os
+from typing import Dict, Any
 from app.services.detectors.base import BaseDetector
-from app.core.taxonomy import IntentCategory, INTENT_DESCRIPTIONS, TIER_MAPPING, IntentTier
+from app.core.taxonomy import IntentCategory
+from app.services.hf_inference import HuggingFaceInferenceClient
 import logging
 
 logger = logging.getLogger(__name__)
 
 class ZeroShotDetector(BaseDetector):
     def __init__(self):
-        self.classifier = None
+        self.client = None
         # Full coverage: every IntentCategory gets a carefully tuned description
         # These descriptions are optimized for BART-MNLI zero-shot inference
         self.intent_map = {
@@ -31,28 +32,21 @@ class ZeroShotDetector(BaseDetector):
             "say hello, greet someone, or exchange polite pleasantries": IntentCategory.GREETING,
         }
         self.candidate_labels = list(self.intent_map.keys())
+        self.model_name = os.getenv("HF_ZEROSHOT_MODEL", "facebook/bart-large-mnli")
 
     async def load(self):
-        import torch
-        # optimized for Apple Silicon
-        device = "mps" if torch.backends.mps.is_available() else -1
-        model_name = "valhalla/distilbart-mnli-12-3"
-        logger.info(f"Loading ZeroShot Model ({model_name}) on {device}...")
+        logger.info(f"Initializing hosted ZeroShot model ({self.model_name})...")
         try:
-            self.classifier = pipeline(
-                "zero-shot-classification",
-                model=model_name,
-                device=device
-            )
-            logger.info("ZeroShot Model Loaded Successfully.")
+            self.client = HuggingFaceInferenceClient(self.model_name)
+            logger.info("ZeroShot detector configured for Hugging Face hosted inference.")
         except Exception as e:
-            logger.error(f"Failed to load ZeroShot model: {e}")
-            self.classifier = None
+            logger.error(f"Failed to initialize hosted ZeroShot detector: {e}")
+            self.client = None
 
     def detect(self, text: str) -> Dict[str, Any]:
         logger.info(f"ZeroShot detect called for text: {text[:50]}...")
-        if not self.classifier:
-            logger.error("Classifier is None!")
+        if not self.client:
+            logger.error("Hosted zero-shot client is not initialized.")
             return {
                 "detected": False, 
                 "score": 0.0, 
@@ -64,31 +58,31 @@ class ZeroShotDetector(BaseDetector):
         hypothesis_template = "The intent of this message is to {}."
         
         try:
-            result = self.classifier(
-                text,
-                self.candidate_labels,
-                multi_label=False,
-                hypothesis_template=hypothesis_template
+            raw_result = self.client.predict(
+                inputs=text,
+                parameters={
+                    "candidate_labels": self.candidate_labels,
+                    "multi_label": False,
+                    "hypothesis_template": hypothesis_template,
+                },
             )
+            labels, scores = self._parse_response(raw_result)
 
-            top_desc = result["labels"][0]
-            top_score = result["scores"][0]
-            
-            # Map back to category
-            detected_category = self.intent_map.get(top_desc, IntentCategory.UNKNOWN)
+            top_desc = labels[0]
+            top_score = scores[0]
             
             # Log top 3 for debugging
             debug_top3 = []
-            for i in range(min(3, len(result["labels"]))):
-                label = result["labels"][i]
-                score = result["scores"][i]
+            for i in range(min(3, len(labels))):
+                label = labels[i]
+                score = scores[i]
                 cat = self.intent_map.get(label, IntentCategory.UNKNOWN)
                 debug_top3.append(f"{cat.value}={score:.3f}")
             logger.info(f"ZeroShot Top 3: {', '.join(debug_top3)}")
 
             # 1. Map all scores to categories
             score_map = {}
-            for label, score in zip(result["labels"], result["scores"]):
+            for label, score in zip(labels, scores):
                 cat = self.intent_map.get(label)
                 if cat:
                     score_map[cat] = score
@@ -131,8 +125,10 @@ class ZeroShotDetector(BaseDetector):
                 "intent": final_intent,
                 "metadata": {
                     "top_label": top_desc,
-                    "all_scores": {self.intent_map.get(l, IntentCategory.UNKNOWN).value: round(s, 4) 
-                                   for l, s in zip(result["labels"][:5], result["scores"][:5])},
+                    "all_scores": {
+                        self.intent_map.get(l, IntentCategory.UNKNOWN).value: round(s, 4)
+                        for l, s in zip(labels, scores)
+                    },
                     "override_applied": detected_risk is not None
                 }
             }
@@ -144,3 +140,21 @@ class ZeroShotDetector(BaseDetector):
                 "intent": None,
                 "metadata": {"error": str(e)}
             }
+
+    @staticmethod
+    def _parse_response(raw_result: Any) -> tuple[list, list]:
+        # Zero-shot response can be either:
+        # - {"labels":[...], "scores":[...]}
+        # - [{"label":"...", "score":...}, ...]
+        if isinstance(raw_result, dict):
+            labels = raw_result.get("labels")
+            scores = raw_result.get("scores")
+            if isinstance(labels, list) and isinstance(scores, list) and labels and scores:
+                return labels, [float(s) for s in scores]
+
+        if isinstance(raw_result, list) and raw_result:
+            if all(isinstance(item, dict) and "label" in item and "score" in item for item in raw_result):
+                ranked = sorted(raw_result, key=lambda x: float(x["score"]), reverse=True)
+                return [x["label"] for x in ranked], [float(x["score"]) for x in ranked]
+
+        raise ValueError(f"Unexpected zero-shot response format: {type(raw_result)}")

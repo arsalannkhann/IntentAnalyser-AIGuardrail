@@ -9,3 +9,13 @@ services:
         value: 3.11.0
       - key: PORT
         value: 10000
+      - key: HF_ZEROSHOT_MODEL
+        value: facebook/bart-large-mnli
+      - key: HF_EMBEDDING_MODEL
+        value: sentence-transformers/all-MiniLM-L6-v2
+      - key: HF_INFERENCE_BASE_URL
+        value: https://router.huggingface.co/hf-inference/models
+      - key: HF_TIMEOUT_SECONDS
+        value: "20"
+      - key: HF_MAX_RETRIES
+        value: "2"

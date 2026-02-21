@@ -1,68 +1,73 @@
-// ---------------------------------------------------------------------------------
-// Intent Analyzer - High Assurance Policies
-// ---------------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Guardrail Policy (generated) — edit app/policies/main.yaml
+// -----------------------------------------------------------------------------
+// Signal Contract (policy-visible context):
+//   - override_detected: bool
+//   - pii_detected: bool
+//   - toxicity_detected: bool
+//   - toxicity_enforce_block: bool
+//   - financial_advice_detected: bool
+//   - low_confidence: bool
+//   - intent: string
+//
+// Template: strict
+// Low confidence threshold: 0.5
+// Low confidence clamp tier: P2_Medium
 
-// 1. GLOBAL SAFETY NET (Highest Priority)
-// Block ANY action if the risk score is too high or the intent is critical (P0).
+// Rule 1 — Critical Override Block (P0_Critical)
 forbid (
     principal,
     action,
     resource
 )
 when {
-    context.risk_score > 60 ||
-    context.tier == "P0_Critical" ||
-    context.tier == "P1_High" ||
-    context.has_critical_signal == true
+    context.override_detected == true
 };
 
-// 2. ROLE-BASED ACCESS CONTROL (RBAC)
-
-// --- Recruiter ---
-// Can only access recruitment and general knowledge.
-permit (
-    principal == Role::"recruiter",
-    action in [Action::"query", Action::"summarize", Action::"generate", Action::"greet"],
-    resource
-)
-when {
-    context.domain == "recruitment"
-};
-
-
-// Allow greetings for everyone (including recruiters)
-permit (
+// Rule 2 — PII Protection Block (P1_High)
+forbid (
     principal,
-    action == Action::"greet",
-    resource
-);
-
-// --- Financial Advisor ---
-// Can access finance, legal, and general knowledge.
-permit (
-    principal == Role::"financial_advisor",
-    action in [Action::"query", Action::"summarize", Action::"generate", Action::"greet"],
-    resource
-)
-when {
-    context.domain in ["finance", "general_knowledge", "legal"]
-};
-
-// --- Developer ---
-// Can access technical and general knowledge. Can also modify.
-permit (
-    principal == Role::"developer",
     action,
     resource
 )
 when {
-    context.domain in ["technical", "general_knowledge"]
+    context.pii_detected == true
 };
 
-// --- General ---
-// Open scope (fallback role, still subject to global safety net)
+// Rule 3 — Toxicity Guard Block (P2_Medium)
+forbid (
+    principal,
+    action,
+    resource
+)
+when {
+    context.toxicity_detected == true &&
+    context.toxicity_enforce_block == true
+};
+
+// Rule 4 — Financial Advice Block (P3_Low)
+forbid (
+    principal,
+    action,
+    resource
+)
+when {
+    context.financial_advice_detected == true
+};
+
+// Rule 5 — Low Confidence Clamp
+forbid (
+    principal,
+    action,
+    resource
+)
+when {
+    context.low_confidence == true
+};
+
+// Baseline allow when no deny rules matched.
 permit (
-    principal == Role::"general",
+    principal,
     action,
     resource
 );

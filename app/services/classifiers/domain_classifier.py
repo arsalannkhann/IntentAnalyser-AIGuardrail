@@ -10,19 +10,19 @@ Not keywords. Not regex. Embedding similarity against rich descriptions.
 Completely independent from Action and Risk classification.
 """
 
+import os
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 from app.services.classifiers import BaseClassifier
 from app.core.axes import Domain, DOMAIN_DESCRIPTIONS
+from app.services.hf_inference import (
+    HuggingFaceInferenceClient,
+    coerce_embedding_batch,
+    coerce_embedding_vector,
+    cosine_similarity,
+)
 
 logger = logging.getLogger(__name__)
-
-try:
-    from sentence_transformers import SentenceTransformer, util
-except ImportError:
-    SentenceTransformer = None
-    logger.warning("sentence-transformers not installed. DomainClassifier disabled.")
-
 
 # Enriched examples per domain to build more robust centroids.
 # These supplement the canonical descriptions for better embedding coverage.
@@ -152,46 +152,66 @@ class DomainClassifier(BaseClassifier):
     """
 
     def __init__(self):
-        self.model = None
-        self.description_embeddings: Dict[Domain, Any] = {}
-        self.example_embeddings: Dict[Domain, Any] = {}
+        self.client = None
+        self.description_embeddings: Dict[Domain, List[float]] = {}
+        self.example_embeddings: Dict[Domain, List[List[float]]] = {}
+        self.model_name = os.getenv("HF_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
     async def load(self):
-        if not SentenceTransformer:
-            logger.warning("DomainClassifier: sentence-transformers not available.")
-            return
+        logger.info(f"DomainClassifier: Initializing hosted embedding model ({self.model_name})...")
+        try:
+            self.client = HuggingFaceInferenceClient(self.model_name)
 
-        import torch
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
-        logger.info(f"DomainClassifier: Loading semantic model on {device}...")
-        self.model = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+            # Encode canonical descriptions
+            for domain, desc in DOMAIN_DESCRIPTIONS.items():
+                self.description_embeddings[domain] = self._embed_text(desc)
 
-        # Encode canonical descriptions
-        for domain, desc in DOMAIN_DESCRIPTIONS.items():
-            self.description_embeddings[domain] = self.model.encode([desc])
+            # Encode example centroids
+            for domain, examples in DOMAIN_EXAMPLES.items():
+                self.example_embeddings[domain] = self._embed_batch(examples)
 
-        # Encode example centroids
-        for domain, examples in DOMAIN_EXAMPLES.items():
-            self.example_embeddings[domain] = self.model.encode(examples)
+            logger.info(
+                "DomainClassifier: Encoded %s domain descriptions + %s example sets.",
+                len(self.description_embeddings),
+                len(self.example_embeddings),
+            )
+        except Exception as e:
+            logger.error(f"DomainClassifier: Failed to initialize hosted embeddings: {e}")
+            self.client = None
+            self.description_embeddings = {}
+            self.example_embeddings = {}
 
-        logger.info(f"DomainClassifier: Encoded {len(self.description_embeddings)} domain descriptions + {len(self.example_embeddings)} example sets.")
+    def _embed_text(self, text: str) -> List[float]:
+        if not self.client:
+            return []
+        raw = self.client.predict(inputs=text)
+        return coerce_embedding_vector(raw)
 
-    def _score_text(self, embedding) -> Dict[str, float]:
+    def _embed_batch(self, texts: List[str]) -> List[List[float]]:
+        if not self.client or not texts:
+            return []
+        raw = self.client.predict(inputs=texts)
+        return coerce_embedding_batch(raw, expected_count=len(texts))
+
+    def _score_text(self, embedding: List[float]) -> Dict[str, float]:
         """Score a single embedding against all domain centroids."""
         scores: Dict[str, float] = {}
         for domain in Domain:
             scores_to_consider = []
             if domain in self.description_embeddings:
-                desc_sim = float(util.cos_sim(embedding, self.description_embeddings[domain]).max())
+                desc_sim = cosine_similarity(embedding, self.description_embeddings[domain])
                 scores_to_consider.append(desc_sim)
             if domain in self.example_embeddings:
-                example_sim = float(util.cos_sim(embedding, self.example_embeddings[domain]).max())
+                example_sim = max(
+                    (cosine_similarity(embedding, e) for e in self.example_embeddings[domain]),
+                    default=0.0,
+                )
                 scores_to_consider.append(example_sim)
             scores[domain.value] = max(scores_to_consider) if scores_to_consider else 0.0
         return scores
 
     def classify(self, text: str) -> Dict[str, Any]:
-        if not self.model:
+        if not self.client:
             return {
                 "result": Domain.GENERAL_KNOWLEDGE,
                 "confidence": 0.0,
@@ -215,7 +235,16 @@ class DomainClassifier(BaseClassifier):
             latter_half = " ".join(words[len(words) // 2:])
             windows.append(latter_half)
 
-        embeddings = [self.model.encode(w) for w in windows]
+        try:
+            embeddings = [self._embed_text(w) for w in windows]
+        except Exception as e:
+            logger.error(f"DomainClassifier embedding inference failed: {e}")
+            return {
+                "result": Domain.GENERAL_KNOWLEDGE,
+                "confidence": 0.0,
+                "all_scores": {},
+                "metadata": {"error": str(e)},
+            }
 
         # Score each window and take max per domain
         all_scores: Dict[str, float] = {}

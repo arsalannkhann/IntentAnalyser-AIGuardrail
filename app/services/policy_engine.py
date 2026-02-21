@@ -1,6 +1,6 @@
 import logging
 import cedarpy
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -14,13 +14,30 @@ class EvaluationResult:
 class PolicyEngine:
     def __init__(self, policy_path: str = "app/policies/main.cedar"):
         self.policy_path = policy_path
+        self.policy_content = self._load_policy(policy_path)
+        self.compiled_policy = self._compile_policy(self.policy_content, policy_path)
+        logger.info("Loaded and compiled Cedar policies from %s", policy_path)
+
+    @staticmethod
+    def _load_policy(policy_path: str) -> str:
         try:
-            with open(policy_path, "r") as f:
-                self.policy_content = f.read()
-            logger.info(f"Loaded Cedar policies from {policy_path}")
-        except FileNotFoundError:
-            logger.error(f"Policy file not found: {policy_path}")
-            self.policy_content = ""
+            with open(policy_path, "r", encoding="utf-8") as policy_file:
+                return policy_file.read()
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"Policy file not found: {policy_path}") from exc
+
+    @staticmethod
+    def _compile_policy(policy_content: str, policy_path: str) -> str:
+        """
+        Parse and normalize Cedar policies once at startup.
+        This validates syntax up front so policy failures are fail-fast.
+        """
+        try:
+            return cedarpy.format_policies(policy_content)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to compile Cedar policy '{policy_path}': {exc}"
+            ) from exc
 
     def evaluate(
         self,
@@ -49,14 +66,20 @@ class PolicyEngine:
         
         principal_entity = {
             "uid": {"type": p_type, "id": p_id},
-            "attrs": {},
+            "attrs": {
+                "user_role": p_id
+            },
             "parents": []
         }
-        entities = [principal_entity] 
-        logger.info(f"CEDAR REQUEST: {request}") 
+        entities = [principal_entity]
+        logger.info("CEDAR REQUEST: %s", request)
 
         try:
-            result: cedarpy.AuthzResult = cedarpy.is_authorized(request, self.policy_content, entities)
+            result: cedarpy.AuthzResult = cedarpy.is_authorized(
+                request,
+                self.compiled_policy,
+                entities,
+            )
             
             decision_str = "allow" if result.decision == cedarpy.Decision.Allow else "block"
             

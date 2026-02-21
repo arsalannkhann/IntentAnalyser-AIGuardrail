@@ -1,9 +1,14 @@
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from app.api.routes import router as api_router
+from app.core.env import load_env_file
 from app.core.logging import setup_logging
 import logging
+
+# Load local development env vars before app startup.
+load_env_file(".env")
+
+from app.api.routes import router as api_router
 
 setup_logging(level="INFO")
 logger = logging.getLogger(__name__)

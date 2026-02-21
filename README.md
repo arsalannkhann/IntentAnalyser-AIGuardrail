@@ -8,6 +8,8 @@
 
 The **Intent Analyzer** is a high-performance, AI-driven guardrail service designed to detect and classify user intents in real-time. It acts as a security sidecar for LLM applications, preventing prompt injection, jailbreaks, PII exfiltration, and other malicious activities before they reach your core model.
 
+This version uses **Hugging Face hosted inference APIs** for semantic embeddings and zero-shot classification, so deployment does not require downloading model weights locally.
+
 ---
 
 ## 🏗️ System Architecture
@@ -40,8 +42,8 @@ graph TD
 1.  **Ingestion**: The `/intent` endpoint receives text or chat history.
 2.  **Parallel Analysis**: The input is broadcast to three detectors simultaneously:
     *   **Regex Detector**: Scans for known attack patterns (e.g., "ignore previous instructions", "system override"). *Speed: <1ms (with short-circuit optimization)*
-    *   **Semantic Detector**: Computes vector similarity against a database of attack centroids using `all-MiniLM-L6-v2`. *Speed: ~50ms (MPS)*
-    *   **Zero-Shot Detector**: a BART-MNLI model classifies intent based on natural language descriptions. *Speed: ~200ms (MPS)*
+    *   **Semantic Detector**: Computes vector similarity against a database of attack centroids using hosted `all-MiniLM-L6-v2` inference.
+    *   **Zero-Shot Detector**: hosted BART-MNLI inference classifies intent based on natural language descriptions.
 3.  **Risk Aggregation**: The `RiskEngine` compiles scores from all detectors.
     *   *Critical Override*: If Regex or high-confidence Semantic detection triggers a Critical threat, it overrides lower-risk signals.
     *   *Weighted Scoring*: Semantic scores > 0.5 boost the risk calculation.
@@ -55,8 +57,8 @@ graph TD
 | :--- | :--- | :--- |
 | **API Layer** | FastAPI, Uvicorn | High-concurrency async request handling. |
 | **Regex Layer** | Python `re` | Instant detection of deterministic threats (SQLi, Shell Injection). |
-| **Semantic Layer** | `sentence-transformers` | Catches nuanced variants of attacks via vector similarity (e.g., "nuke the folder" ≈ "delete files"). |
-| **Zero-Shot Layer** | HuggingFace `pipeline` | Generalized classification for broad categories (Financial, Medical, etc.) without training. |
+| **Semantic Layer** | Hugging Face Inference API (`sentence-transformers/all-MiniLM-L6-v2`) | Catches nuanced variants of attacks via vector similarity (e.g., "nuke the folder" ≈ "delete files"). |
+| **Zero-Shot Layer** | Hugging Face Inference API (`facebook/bart-large-mnli`) | Generalized classification for broad categories (Financial, Medical, etc.) without training. |
 | **Orchestrator** | Python `asyncio` | Manages parallel execution for minimal latency. |
 
 ---
@@ -75,7 +77,14 @@ The service is production-ready with a tuned `Dockerfile`.
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `PORT` | Service port | `8002` |
-| `INTENT_ANALYZER_MODEL` | Zero-shot model name | `bart` |
+| `HUGGINGFACE_API_TOKEN` | HF token for hosted inference (recommended for higher limits) | _unset_ |
+| `HF_ZEROSHOT_MODEL` | Hosted zero-shot model ID | `facebook/bart-large-mnli` |
+| `HF_EMBEDDING_MODEL` | Hosted embedding model ID | `sentence-transformers/all-MiniLM-L6-v2` |
+| `HF_INFERENCE_BASE_URL` | HF inference base URL | `https://router.huggingface.co/hf-inference/models` |
+| `HF_TIMEOUT_SECONDS` | Per-request timeout for inference calls | `20` |
+| `HF_MAX_RETRIES` | Retry attempts for transient HF API errors | `2` |
+
+Token note: make sure the token includes **Inference Providers** permission in Hugging Face settings.
 
 **Run Locally:**
 ```bash
@@ -161,8 +170,12 @@ The system classifies inputs into 4 risk tiers:
 ---
 
 ## 📚 Documentation & Learning
-- [Full Tutorial](docs/tutorial.md): A step-by-step guide to the architecture.
-- [Execution Flow Demo](docs/architecture_demo.md): Detailed trace of how requests are processed.
+- **[CLI Guide](docs/CLI_GUIDE.md)** - Complete command-line reference with examples
+- **[Quick Reference](docs/CHEATSHEET.md)** - One-page cheat sheet for common commands
+- **[Workflows](docs/WORKFLOWS.md)** - Visual guides for common usage patterns
+- **[Rich TUI Guide](docs/RICH_TUI.md)** - Interactive policy editor documentation
+- **[Tutorial](docs/tutorial.md)** - Step-by-step architecture guide
+- **[Architecture Demo](docs/architecture_demo.md)** - Detailed request processing trace
 
 ---
 

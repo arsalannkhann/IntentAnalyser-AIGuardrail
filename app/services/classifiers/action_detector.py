@@ -7,11 +7,12 @@ Small label space → high accuracy → fast inference.
 
 Completely independent from Domain and Risk classification.
 """
-
 import logging
+import os
 from typing import Dict, Any
 from app.services.classifiers import BaseClassifier
-from app.core.axes import Action, ACTION_DESCRIPTIONS
+from app.core.axes import Action
+from app.services.hf_inference import HuggingFaceInferenceClient
 
 logger = logging.getLogger(__name__)
 
@@ -35,29 +36,21 @@ class ActionDetector(BaseClassifier):
     """
 
     def __init__(self):
-        self.classifier = None
+        self.client = None
         self.candidate_labels = list(ACTION_LABELS.keys())
+        self.model_name = os.getenv("HF_ZEROSHOT_MODEL", "facebook/bart-large-mnli")
 
     async def load(self):
-        from transformers import pipeline as hf_pipeline
-        import torch
-
-        device = "mps" if torch.backends.mps.is_available() else -1
-        model_name = "valhalla/distilbart-mnli-12-3"
-        logger.info(f"ActionDetector: Loading {model_name}...")
+        logger.info(f"ActionDetector: Initializing hosted model {self.model_name}...")
         try:
-            self.classifier = hf_pipeline(
-                "zero-shot-classification",
-                model=model_name,
-                device=device,
-            )
-            logger.info("ActionDetector: Model loaded.")
+            self.client = HuggingFaceInferenceClient(self.model_name)
+            logger.info("ActionDetector: Hosted model client ready.")
         except Exception as e:
-            logger.error(f"ActionDetector: Failed to load model: {e}")
-            self.classifier = None
+            logger.error(f"ActionDetector: Failed to initialize hosted model: {e}")
+            self.client = None
 
     def classify(self, text: str) -> Dict[str, Any]:
-        if not self.classifier:
+        if not self.client:
             return {
                 "result": Action.QUERY,
                 "confidence": 0.0,
@@ -68,22 +61,25 @@ class ActionDetector(BaseClassifier):
         hypothesis_template = "The user wants to {}."
 
         try:
-            result = self.classifier(
-                text,
-                self.candidate_labels,
-                multi_label=False,
-                hypothesis_template=hypothesis_template,
+            result = self.client.predict(
+                inputs=text,
+                parameters={
+                    "candidate_labels": self.candidate_labels,
+                    "multi_label": False,
+                    "hypothesis_template": hypothesis_template,
+                },
             )
+            labels, scores = self._parse_response(result)
 
             # Build score map
             all_scores: Dict[str, float] = {}
-            for label, score in zip(result["labels"], result["scores"]):
+            for label, score in zip(labels, scores):
                 action = ACTION_LABELS.get(label)
                 if action:
                     all_scores[action.value] = round(score, 4)
 
-            top_label = result["labels"][0]
-            top_score = float(result["scores"][0])
+            top_label = labels[0]
+            top_score = float(scores[0])
             top_action = ACTION_LABELS.get(top_label, Action.QUERY)
 
             # Log top 3
@@ -105,3 +101,18 @@ class ActionDetector(BaseClassifier):
                 "all_scores": {},
                 "metadata": {"error": str(e)},
             }
+
+    @staticmethod
+    def _parse_response(raw_result: Any) -> tuple[list, list]:
+        if isinstance(raw_result, dict):
+            labels = raw_result.get("labels")
+            scores = raw_result.get("scores")
+            if isinstance(labels, list) and isinstance(scores, list) and labels and scores:
+                return labels, [float(s) for s in scores]
+
+        if isinstance(raw_result, list) and raw_result:
+            if all(isinstance(item, dict) and "label" in item and "score" in item for item in raw_result):
+                ranked = sorted(raw_result, key=lambda x: float(x["score"]), reverse=True)
+                return [x["label"] for x in ranked], [float(x["score"]) for x in ranked]
+
+        raise ValueError(f"Unexpected zero-shot response format: {type(raw_result)}")
